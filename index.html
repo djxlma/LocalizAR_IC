@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin AR - Marcação de Stands</title>
+  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+  <style>
+    body, html { margin: 0; height: 100%; overflow: hidden; }
+    #start-ar-btn {
+      position: absolute; top: 20px; left: 20px; z-index: 10; padding: 10px 20px;
+      font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <button id="start-ar-btn">Entrar em AR</button>
+
+  <a-scene embedded vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true">
+    <a-entity id="camera" camera look-controls position="0 1.6 0"></a-entity>
+    <a-entity id="reticle" visible="false" geometry="primitive: ring; radiusInner: 0.05; radiusOuter: 0.06"
+              material="color: green; shader: flat" rotation="-90 0 0"></a-entity>
+
+    <a-entity light="type: directional; intensity: 0.8" position="1 2 1"></a-entity>
+    <a-entity light="type: ambient; intensity: 0.3"></a-entity>
+  </a-scene>
+
+  <script>
+    const scene = document.querySelector('a-scene');
+    const reticle = document.getElementById('reticle');
+    const startARBtn = document.getElementById('start-ar-btn');
+
+    let xrSession = null;
+    let xrRefSpace = null;
+    let hitTestSource = null;
+    let selectedMarker = null; // marcador atualmente selecionado
+
+    startARBtn.addEventListener('click', async () => {
+      if (!navigator.xr) {
+        alert('WebXR não suportado neste navegador');
+        return;
+      }
+
+      try {
+        xrSession = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test', 'local-floor']
+        });
+        scene.xrSession = xrSession;
+        xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+
+        const viewerSpace = await xrSession.requestReferenceSpace('viewer');
+        hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+
+        xrSession.addEventListener('end', () => {
+          hitTestSource = null;
+          xrSession = null;
+          reticle.setAttribute('visible', false);
+          startARBtn.style.display = 'block';
+        });
+
+        startARBtn.style.display = 'none';
+        scene.renderer.xr.setSession(xrSession);
+        scene.renderer.xr.setReferenceSpace(xrRefSpace);
+
+        scene.renderer.setAnimationLoop((time, frame) => {
+          if (frame) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+            if (hitTestResults.length > 0) {
+              const hit = hitTestResults[0];
+              const pose = hit.getPose(xrRefSpace);
+              if (pose) {
+                reticle.object3D.position.set(
+                  pose.transform.position.x,
+                  pose.transform.position.y,
+                  pose.transform.position.z
+                );
+                reticle.object3D.quaternion.set(
+                  pose.transform.orientation.x,
+                  pose.transform.orientation.y,
+                  pose.transform.orientation.z,
+                  pose.transform.orientation.w
+                );
+                reticle.setAttribute('visible', true);
+              }
+            } else {
+              reticle.setAttribute('visible', false);
+            }
+          }
+        });
+      } catch (e) {
+        alert('Erro ao iniciar AR: ' + e);
+      }
+    });
+
+    // Criar marcador
+    function createMarker(pos, name = "Stand") {
+      const marker = document.createElement('a-box');
+      marker.setAttribute('position', pos);
+      marker.setAttribute('depth', 0.1);
+      marker.setAttribute('height', 0.1);
+      marker.setAttribute('width', 0.1);
+      marker.setAttribute('color', '#FF0000');
+      marker.setAttribute('stand-name', name);
+
+      marker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedMarker = marker;
+        const novoNome = prompt("Nome do marcador:", marker.getAttribute('stand-name'));
+        if (novoNome) {
+          marker.setAttribute('stand-name', novoNome);
+        }
+        alert("Agora você pode mover o marcador clicando no chão.");
+      });
+
+      scene.appendChild(marker);
+    }
+
+    // Clique na cena
+    scene.addEventListener('click', () => {
+      if (!reticle.getAttribute('visible')) return;
+
+      const pos = reticle.getAttribute('position');
+
+      if (selectedMarker) {
+        // Mover marcador selecionado
+        selectedMarker.setAttribute('position', pos);
+        selectedMarker = null;
+      } else {
+        // Criar novo marcador
+        createMarker(pos, "Stand " + (scene.querySelectorAll('a-box').length + 1));
+      }
+    });
+  </script>
+</body>
+</html>
